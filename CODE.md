@@ -7,13 +7,20 @@ flutter_security_setting_manage_test/
     ├── models/
     │   ├── basic_setting.dart
     │   └── security_setting.dart
+    ├── screens/
+    │   ├── basic_settings_page.dart
+    │   ├── home_page.dart
+    │   └── security_settings_page.dart
     ├── services/
-    │   └── encryption_service.dart
+    │   ├── encryption_service.dart
+    │   └── file_service.dart
     ├── utils/
     │   └── constants.dart
     └── main.dart
 ├── README.md
-└── pubspec.yaml
+├── basic_settings.json
+├── plan.md
+└── security_settings.json
 ```
 
 ## README.md
@@ -22,9 +29,20 @@ flutter_security_setting_manage_test/
  
 
 ```
+## basic_settings.json
+```json
+{
+    "serverUrl": "http://example.com",
+    "port": 8080,
+    "timeout": 300,
+    "enableLogging": true
+}
+```
 ## lib/main.dart
 ```dart
 import 'package:flutter/material.dart';
+
+import 'screens/home_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -36,60 +54,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: '설정 관리자',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+      home: const HomePage(),
     );
   }
 }
@@ -297,6 +267,459 @@ class SecuritySetting {
 }
 
 ```
+## lib/screens/basic_settings_page.dart
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_security_setting_manage_test/utils/constants.dart';
+
+import '../models/basic_setting.dart';
+import '../services/encryption_service.dart';
+import '../services/file_service.dart';
+
+class BasicSettingsPage extends StatefulWidget {
+  const BasicSettingsPage({super.key});
+
+  @override
+  State<BasicSettingsPage> createState() => _BasicSettingsPageState();
+}
+
+class _BasicSettingsPageState extends State<BasicSettingsPage> {
+  // 폼 키 및 컨트롤러들
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _serverUrlController;
+  late TextEditingController _portController;
+  late TextEditingController _timeoutController;
+  late bool _enableLogging;
+
+  // 서비스 인스턴스
+  late final FileService _fileService;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // 컨트롤러 초기화
+    _serverUrlController = TextEditingController();
+    _portController = TextEditingController();
+    _timeoutController = TextEditingController();
+    _enableLogging = false;
+
+    // FileService 초기화 및 설정 불러오기
+    _fileService = FileService(EncryptionService());
+    _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    // 컨트롤러 해제
+    _serverUrlController.dispose();
+    _portController.dispose();
+    _timeoutController.dispose();
+    super.dispose();
+  }
+
+  // 설정 불러오기
+  Future<void> _loadSettings() async {
+    try {
+      final settings = await _fileService.loadBasicSettings();
+      setState(() {
+        _serverUrlController.text = settings.serverURL;
+        _portController.text = settings.port.toString();
+        _timeoutController.text = settings.timeout.toString();
+        _enableLogging = settings.enableLogging;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('설정을 불러오는 데 실패했습니다: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  // 설정 저장하기
+  Future<void> _saveSettings() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      final settings = BasicSettings(
+        serverURL: _serverUrlController.text,
+        port: int.parse(_portController.text),
+        timeout: int.parse(_timeoutController.text),
+        enableLogging: _enableLogging,
+      );
+
+      // 유효성 검증
+      final validationError = settings.validate();
+      if (validationError != null) {
+        throw Exception(validationError);
+      }
+
+      await _fileService.saveBasicSettings(settings);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('설정이 저장되었습니다')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('설정 저장에 실패했습니다: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('기본 설정'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 서버 URL 입력 필드
+              TextFormField(
+                controller: _serverUrlController,
+                decoration: const InputDecoration(
+                  labelText: '서버 URL',
+                  hintText: 'http://example.com',
+                  prefixIcon: Icon(Icons.link),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return '서버 URL을 입력하세요';
+                  }
+                  if (!value.startsWith('http://') &&
+                      !value.startsWith('https://')) {
+                    return 'URL은 http:// 또는 https://로 시작해야 합니다';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 포트 입력 필드
+              TextFormField(
+                controller: _portController,
+                decoration: const InputDecoration(
+                  labelText: '포트',
+                  hintText: '8080',
+                  prefixIcon: Icon(Icons.numbers),
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return '포트 번호를 입력하세요';
+                  }
+                  final port = int.tryParse(value);
+                  if (port == null ||
+                      port < 0 ||
+                      port > AppConstants.maxPortNumber) {
+                    return '유효한 포트 번호를 입력하세요 (0-${AppConstants.maxPortNumber})';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 타임아웃 입력 필드
+              TextFormField(
+                controller: _timeoutController,
+                decoration: const InputDecoration(
+                  labelText: '타임아웃 (초)',
+                  hintText: '30',
+                  prefixIcon: Icon(Icons.timer),
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return '타임아웃 값을 입력하세요';
+                  }
+                  final timeout = int.tryParse(value);
+                  if (timeout == null ||
+                      timeout < AppConstants.minTimeout ||
+                      timeout > AppConstants.maxTimeout) {
+                    return '유효한 타임아웃 값을 입력하세요 (${AppConstants.minTimeout}-${AppConstants.maxTimeout})';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 로깅 활성화 스위치
+              SwitchListTile(
+                title: const Text('로깅 활성화'),
+                subtitle: const Text('디버그 정보를 로그 파일에 저장합니다'),
+                value: _enableLogging,
+                onChanged: (bool value) {
+                  setState(() {
+                    _enableLogging = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 32),
+
+              // 저장 버튼
+              ElevatedButton.icon(
+                onPressed: _saveSettings,
+                icon: const Icon(Icons.save),
+                label: const Text('설정 저장'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.all(16),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+```
+## lib/screens/home_page.dart
+```dart
+import 'package:flutter/material.dart';
+
+import 'basic_settings_page.dart';
+import 'security_settings_page.dart';
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('설정 관리자'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // 기본 설정 카드
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text('기본 설정'),
+                  subtitle: const Text('서버 URL, 포트, 타임아웃 등의 기본 설정을 관리합니다.'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const BasicSettingsPage(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              // 보안 설정 카드
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.security),
+                  title: const Text('보안 설정'),
+                  subtitle: const Text('API 키, 토큰 등의 보안 설정을 관리합니다.'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SecuritySettingsPage(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+```
+## lib/screens/security_settings_page.dart
+```dart
+import 'package:flutter/material.dart';
+
+import '../models/security_setting.dart';
+import '../services/encryption_service.dart';
+import '../services/file_service.dart';
+
+class SecuritySettingsPage extends StatefulWidget {
+  const SecuritySettingsPage({super.key});
+
+  @override
+  State<SecuritySettingsPage> createState() => _SecuritySettingsPageState();
+}
+
+class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _apiKeyController;
+  late TextEditingController _accessTokenController;
+  late TextEditingController _refreshTokenController;
+  late final FileService _fileService;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiKeyController = TextEditingController();
+    _accessTokenController = TextEditingController();
+    _refreshTokenController = TextEditingController();
+    _fileService = FileService(EncryptionService());
+    _loadSecuritySettings();
+  }
+
+  @override
+  void dispose() {
+    _apiKeyController.dispose();
+    _accessTokenController.dispose();
+    _refreshTokenController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSecuritySettings() async {
+    try {
+      final settings = await _fileService.loadSecuritySettings();
+      setState(() {
+        _apiKeyController.text = settings.apiKey;
+        _accessTokenController.text = settings.accessToken;
+        _refreshTokenController.text = settings.refreshToken;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('보안 설정을 불러오는 데 실패했습니다: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveSecuritySettings() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      final settings = SecuritySetting(
+        apiKey: _apiKeyController.text,
+        accessToken: _accessTokenController.text,
+        refreshToken: _refreshTokenController.text,
+      );
+
+      final validationError = settings.validate();
+      if (validationError != null) {
+        throw Exception(validationError);
+      }
+
+      await _fileService.saveSecuritySettings(settings);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('보안 설정이 저장되었습니다')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('보안 설정 저장 실패: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('보안 설정'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextFormField(
+                controller: _apiKeyController,
+                decoration: const InputDecoration(
+                  labelText: 'API Key',
+                  prefixIcon: Icon(Icons.vpn_key),
+                ),
+                validator: (value) =>
+                    value == null || value.isEmpty ? 'API Key를 입력하세요' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _accessTokenController,
+                decoration: const InputDecoration(
+                  labelText: 'Access Token',
+                  prefixIcon: Icon(Icons.lock),
+                ),
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Access Token을 입력하세요'
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _refreshTokenController,
+                decoration: const InputDecoration(
+                  labelText: 'Refresh Token',
+                  prefixIcon: Icon(Icons.refresh),
+                ),
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Refresh Token을 입력하세요'
+                    : null,
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: _saveSecuritySettings,
+                icon: const Icon(Icons.save),
+                label: const Text('보안 설정 저장'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.all(16),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+```
 ## lib/services/encryption_service.dart
 ```dart
 import 'dart:convert';
@@ -383,6 +806,112 @@ class EncryptionService {
 }
 
 ```
+## lib/services/file_service.dart
+```dart
+import 'dart:io';
+
+import 'package:path_provider/path_provider.dart';
+
+import '../models/basic_setting.dart';
+import '../models/security_setting.dart';
+import '../utils/constants.dart';
+import 'encryption_service.dart';
+
+class FileService {
+  final EncryptionService _encryptionService;
+
+  FileService(this._encryptionService);
+
+  // 앱의 로컬 저장소 디렉토리 경로를 가져오는 메서드
+  Future<String> get _localPath async {
+    final directory = await getApplicationDocumentsDirectory();
+    return directory.path;
+  }
+
+  // 기본 설정 파일의 전체 경로를 가져오는 메서드
+  Future<File> get _basicSettingsFile async {
+    final path = await _localPath;
+    return File('$path/${AppConstants.basicSettingsFileName}');
+  }
+
+  // 보안 설정 파일의 전체 경로를 가져오는 메서드
+  Future<File> get _securitySettingsFile async {
+    final path = await _localPath;
+    return File('$path/${AppConstants.securitySettingsFileName}');
+  }
+
+  // 기본 설정을 저장하는 메서드
+  Future<void> saveBasicSettings(BasicSettings settings) async {
+    try {
+      final file = await _basicSettingsFile;
+      await file.writeAsString(settings.toJsonString());
+    } catch (e) {
+      throw Exception('기본 설정 저장 실패: ${e.toString()}');
+    }
+  }
+
+  // 보안 설정을 저장하는 메서드
+  Future<void> saveSecuritySettings(SecuritySetting settings) async {
+    try {
+      final file = await _securitySettingsFile;
+      final encryptedData = settings.toEncryptedString(_encryptionService);
+      await file.writeAsString(encryptedData);
+    } catch (e) {
+      throw Exception('보안 설정 저장 실패: ${e.toString()}');
+    }
+  }
+
+  // 기본 설정을 불러오는 메서드
+  Future<BasicSettings> loadBasicSettings() async {
+    try {
+      final file = await _basicSettingsFile;
+      if (!await file.exists()) {
+        // 파일이 없으면 기본값으로 설정
+        return BasicSettings();
+      }
+
+      final jsonString = await file.readAsString();
+      return BasicSettings.fromJsonString(jsonString);
+    } catch (e) {
+      throw Exception('기본 설정 불러오기 실패: ${e.toString()}');
+    }
+  }
+
+  // 보안 설정을 불러오는 메서드
+  Future<SecuritySetting> loadSecuritySettings() async {
+    try {
+      final file = await _securitySettingsFile;
+      if (!await file.exists()) {
+        throw Exception('보안 설정 파일이 존재하지 않습니다.');
+      }
+
+      final encryptedData = await file.readAsString();
+      return SecuritySetting.fromEncryptedString(
+          encryptedData, _encryptionService);
+    } catch (e) {
+      throw Exception('보안 설정 불러오기 실패: ${e.toString()}');
+    }
+  }
+
+  // 모든 설정 파일 삭제 메서드 (초기화 용도)
+  Future<void> clearAllSettings() async {
+    try {
+      final basicFile = await _basicSettingsFile;
+      final securityFile = await _securitySettingsFile;
+
+      if (await basicFile.exists()) {
+        await basicFile.delete();
+      }
+      if (await securityFile.exists()) {
+        await securityFile.delete();
+      }
+    } catch (e) {
+      throw Exception('설정 파일 삭제 실패: ${e.toString()}');
+    }
+  }
+}
+
+```
 ## lib/utils/constants.dart
 ```dart
 class AppConstants {
@@ -408,91 +937,88 @@ class AppConstants {
 }
 
 ```
-## pubspec.yaml
-```yaml
-name: flutter_security_setting_manage_test
-description: "A new Flutter project."
-# The following line prevents the package from being accidentally published to
-# pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+## plan.md
+```md
+네, 두 가지 설정 페이지를 비교하는 구조로 만들어보겠습니다.
 
-# The following defines the version and build number for your application.
-# A version number is three numbers separated by dots, like 1.2.43
-# followed by an optional build number separated by a +.
-# Both the version and the builder number may be overridden in flutter
-# build by specifying --build-name and --build-number, respectively.
-# In Android, build-name is used as versionName while build-number used as versionCode.
-# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
-# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
-# Read more about iOS versioning at
-# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
-# In Windows, build-name is used as the major, minor, and patch parts
-# of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+```
+lib/
+├── main.dart
+├── models/
+│   ├── basic_settings.dart
+│   └── security_settings.dart
+├── services/
+│   ├── encryption_service.dart
+│   └── file_service.dart
+├── screens/
+│   ├── basic_settings_page.dart
+│   ├── security_settings_page.dart
+│   └── home_page.dart
+└── utils/
+    ├── constants.dart
+    └── validators.dart
+```
 
-environment:
-  sdk: ^3.6.1
+주요 컴포넌트 설명:
 
-# Dependencies specify other packages that your package needs in order to work.
-# To automatically upgrade your package dependencies to the latest versions
-# consider running `flutter pub upgrade --major-versions`. Alternatively,
-# dependencies can be manually updated by changing the version numbers below to
-# the latest version available on pub.dev. To see which dependencies have newer
-# versions available, run `flutter pub outdated`.
-dependencies:
-  crypto: ^3.0.6
-  cupertino_icons: ^1.0.8
-  encrypt: ^5.0.3
-  flutter:
-    sdk: flutter
-  path_provider: ^2.1.5
+1. **models/**
+   - `basic_settings.dart`: 일반 JSON 직렬화/역직렬화 모델
+   - `security_settings.dart`: 암호화/복호화가 필요한 보안 설정 모델
 
-dev_dependencies:
+2. **services/**
+   - `encryption_service.dart`: 암호화/복호화 및 해시 생성 로직
+   - `file_service.dart`: 파일 읽기/쓰기 처리
 
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
-  flutter_lints: ^5.0.0
-  flutter_test:
-    sdk: flutter
+3. **screens/**
+   - `home_page.dart`: 두 설정 페이지로 이동할 수 있는 메인 화면
+   - `basic_settings_page.dart`: 기본 설정 페이지
+   - `security_settings_page.dart`: 보안 설정 페이지
 
-# For information on the generic Dart part of this file, see the
-# following page: https://dart.dev/tools/pub/pubspec
-# The following section is specific to Flutter packages.
-flutter:
+4. **utils/**
+   - `constants.dart`: 파일 경로, 키 등 상수 정의
+   - `validators.dart`: 설정값 검증 로직
 
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
-  uses-material-design: true
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
-  # An image asset can refer to one or more resolution-specific "variants", see
-  # https://flutter.dev/to/resolution-aware-images
-  # For details regarding adding assets from package dependencies, see
-  # https://flutter.dev/to/asset-from-package
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
-  # fonts:
-  #   - family: Schyler
-  #     fonts:
-  #       - asset: fonts/Schyler-Regular.ttf
-  #       - asset: fonts/Schyler-Italic.ttf
-  #         style: italic
-  #   - family: Trajan Pro
-  #     fonts:
-  #       - asset: fonts/TrajanPro.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
-  #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+이제 기본적인 앱을 만들어볼까요? main.dart부터 시작해서 하나씩 구현해나가면 될 것 같습니다. 어떤 부분부터 보고 싶으신가요?
 
+참고로 각 설정 파일은 다음과 같은 형태가 될 것 같습니다:
+
+```json
+// basic_settings.json
+{
+  "serverUrl": "http://example.com",
+  "port": 8080,
+  "timeout": 30,
+  "enableLogging": true
+}
+
+// security_settings.json (암호화 전)
+{
+  "apiKey": "your-secret-key",
+  "accessToken": "your-access-token",
+  "refreshToken": "your-refresh-token",
+  "lastModified": "2024-02-05T12:00:00Z",
+  "hash": "generated-hash-value"
+}
+```
+
+```
+파일 저장 > 암호화 > 암호화에 salt추가 > (암호화+salt)를 해시 > (암호화+salt)(내가 정의한 구분 패턴)(암호화+salt 해시값) > base64 인코딩
+```
+
+이렇게 해서 파일 읽을 때는
+
+
+```
+base64 디코딩 > 구분 패턴으로 암호화+salt와 해시값 구분 > 암호화+salt를 해시 > 여기서 나온 해시 값과 기존에 있던 해시값 비교 > 암호화+salt에서 salt를 제거 하고 decrypt
+```
+```
+## security_settings.json
+```json
+{
+    "apiKey": "your-secret-key",
+    "accessToken": "your-access-token",
+    "refreshToken": "your-refresh-token",
+    "lastModified": "2024-02-05T12:00:00Z",
+    "hash": "generated-hash-value"
+}
 ```

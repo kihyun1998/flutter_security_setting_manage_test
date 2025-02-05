@@ -1,0 +1,6 @@
+{
+    "serverUrl": "http://example.com",
+    "port": 8080,
+    "timeout": 300,
+    "enableLogging": true
+}
