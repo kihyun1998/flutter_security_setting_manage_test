@@ -70,7 +70,7 @@ class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
         throw Exception(validationError);
       }
 
-      await _fileService.saveSecuritySettings(settings);
+      await _fileService.cacheSecuritySettings(settings);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('보안 설정이 저장되었습니다')),

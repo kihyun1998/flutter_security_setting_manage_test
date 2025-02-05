@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
@@ -9,6 +10,8 @@ import 'encryption_service.dart';
 
 class FileService {
   final EncryptionService _encryptionService;
+  Timer? _debounceTimer; // 🔥 디바운스 타이머 추가
+  SecuritySetting? _cachedSecuritySettings; // 🔥 메모리 캐시 추가
 
   FileService(this._encryptionService);
 
@@ -40,8 +43,22 @@ class FileService {
     }
   }
 
+  Future<void> cacheSecuritySettings(SecuritySetting settings) async {
+    _cachedSecuritySettings = settings;
+
+    // 기존 타이머가 있으면 취소 (디바운스 적용)
+    _debounceTimer?.cancel();
+
+    // 3초 후 자동 저장 (디바운스)
+    _debounceTimer = Timer(const Duration(seconds: 3), () async {
+      if (_cachedSecuritySettings != null) {
+        await _saveSecuritySettings(_cachedSecuritySettings!);
+      }
+    });
+  }
+
   // 보안 설정 저장 (암호화 실패 시 기본값 사용)
-  Future<void> saveSecuritySettings(SecuritySetting settings) async {
+  Future<void> _saveSecuritySettings(SecuritySetting settings) async {
     try {
       final file = await _securitySettingsFile;
       final encryptedData = settings.toEncryptedString(_encryptionService);
@@ -103,6 +120,9 @@ class FileService {
   }
 
   Future<void> resetSecuritySettings() async {
+    _debounceTimer?.cancel(); // 타이머 정리
+    _cachedSecuritySettings = null; // 캐시 삭제
+
     final file = await _securitySettingsFile;
     if (await file.exists()) {
       await file.delete();
@@ -117,13 +137,16 @@ class FileService {
       refreshToken: 'default-refresh-token',
     );
 
-    await saveSecuritySettings(defaultSettings);
+    cacheSecuritySettings(defaultSettings);
     return defaultSettings;
   }
 
   // 모든 설정 파일 삭제 메서드 (초기화 용도)
   Future<void> clearAllSettings() async {
     try {
+      _debounceTimer?.cancel(); // 🔥 타이머 정리
+      _cachedSecuritySettings = null; // 🔥 캐시 삭제
+
       final basicFile = await _basicSettingsFile;
       final securityFile = await _securitySettingsFile;
 
