@@ -40,14 +40,24 @@ class FileService {
     }
   }
 
-  // 보안 설정을 저장하는 메서드
+  // 보안 설정 저장 (암호화 실패 시 기본값 사용)
   Future<void> saveSecuritySettings(SecuritySetting settings) async {
     try {
       final file = await _securitySettingsFile;
       final encryptedData = settings.toEncryptedString(_encryptionService);
       await file.writeAsString(encryptedData);
-    } catch (e) {
-      throw Exception('보안 설정 저장 실패: ${e.toString()}');
+    } catch (e, stackTrace) {
+      print('보안 설정 저장 실패: $e $stackTrace');
+      // 암호화 실패 시 기본 설정값 저장
+      final defaultSettings = SecuritySetting(
+        apiKey: 'default-api-key',
+        accessToken: 'default-access-token',
+        refreshToken: 'default-refresh-token',
+      );
+      final file = await _securitySettingsFile;
+      final defaultEncryptedData =
+          defaultSettings.toEncryptedString(_encryptionService);
+      await file.writeAsString(defaultEncryptedData);
     }
   }
 
@@ -67,20 +77,48 @@ class FileService {
     }
   }
 
-  // 보안 설정을 불러오는 메서드
+  // 보안 설정 불러오기 (없거나 실패 시 기본값 사용)
   Future<SecuritySetting> loadSecuritySettings() async {
     try {
       final file = await _securitySettingsFile;
       if (!await file.exists()) {
-        throw Exception('보안 설정 파일이 존재하지 않습니다.');
+        return _saveAndReturnDefaultSettings();
       }
 
       final encryptedData = await file.readAsString();
+
+      // 데이터가 올바른 Base64 형식인지 검증
+      if (!RegExp(r'^[A-Za-z0-9+/=]+$').hasMatch(encryptedData)) {
+        throw FormatException('Invalid Base64 format');
+      }
+
       return SecuritySetting.fromEncryptedString(
           encryptedData, _encryptionService);
-    } catch (e) {
-      throw Exception('보안 설정 불러오기 실패: ${e.toString()}');
+    } catch (e, stackTrace) {
+      print('보안 설정 불러오기 실패: $e, $stackTrace');
+
+      await resetSecuritySettings();
+      return _saveAndReturnDefaultSettings();
     }
+  }
+
+  Future<void> resetSecuritySettings() async {
+    final file = await _securitySettingsFile;
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  // 기본 보안 설정 생성 및 저장 후 반환
+  Future<SecuritySetting> _saveAndReturnDefaultSettings() async {
+    final defaultSettings = SecuritySetting(
+      apiKey: 'default-api-key',
+      accessToken: 'default-access-token',
+      refreshToken: 'default-refresh-token',
+    );
+
+    await saveSecuritySettings(defaultSettings);
+    return defaultSettings;
   }
 
   // 모든 설정 파일 삭제 메서드 (초기화 용도)

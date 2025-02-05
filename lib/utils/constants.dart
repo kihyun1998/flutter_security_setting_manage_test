@@ -5,8 +5,9 @@ class AppConstants {
 
   // Encryption
   static const String encryptionKey =
-      'your_32_length_secret_key_12345678'; // 32 bytes for AES-256
-  static const String encryptionIV = 'your_16_length_iv'; // 16 bytes for AES
+      'e4c09b8a8f4e7f6635b14a8b292f91a7d7e8c7a00e5b68c8a8b0f1d6a4a4a7e8'; // 32 bytes for AES-256
+  static const String encryptionIV =
+      '7ac075ded8f50f175b888d5b32b30961'; // 16 bytes for AES
 
   // Validation
   static const int maxPortNumber = 65535;

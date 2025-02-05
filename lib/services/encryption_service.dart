@@ -11,15 +11,38 @@ class EncryptionService {
   static const int _saltLength = 16;
 
   // final encrypt.Key _key = encrypt.Key.fromUtf8(AppConstants.encryptionKey);
-  final encrypt.IV _iv = encrypt.IV.fromUtf8(AppConstants.encryptionIV);
+  final encrypt.IV _iv;
+  final encrypt.Key _key;
+
+  EncryptionService()
+      : _key = encrypt.Key.fromBase16(AppConstants.encryptionKey),
+        _iv = encrypt.IV.fromBase16(AppConstants.encryptionIV) {
+    // 🔥 키 길이 검증
+    if (_key.bytes.length != 32) {
+      throw Exception(
+          'Invalid Key length: ${_key.bytes.length}. Key must be exactly 32 bytes.');
+    }
+    // 🔥 IV 길이 검증
+    if (_iv.bytes.length != 16) {
+      throw Exception(
+          'Invalid IV length: ${_iv.bytes.length}. IV must be exactly 16 bytes.');
+    }
+  }
+
   final _encrypter = encrypt.Encrypter(
-      encrypt.AES(encrypt.Key.fromUtf8(AppConstants.encryptionKey)));
+    encrypt.AES(encrypt.Key.fromBase16(AppConstants.encryptionKey)),
+  );
+
+  static get hex => null;
 
   // 랜덤 salt 생성
   String _generateSalt() {
     final random = Random.secure();
     final values = List<int>.generate(_saltLength, (i) => random.nextInt(256));
-    return base64Url.encode(values);
+    if (values.length != _saltLength) {
+      throw Exception('Generated Salt length is invalid: ${values.length}');
+    }
+    return base64Url.encode(values).substring(0, _saltLength); // 정확한 길이 유지
   }
 
   // 해시 생성

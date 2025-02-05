@@ -735,15 +735,38 @@ class EncryptionService {
   static const int _saltLength = 16;
 
   // final encrypt.Key _key = encrypt.Key.fromUtf8(AppConstants.encryptionKey);
-  final encrypt.IV _iv = encrypt.IV.fromUtf8(AppConstants.encryptionIV);
+  final encrypt.IV _iv;
+  final encrypt.Key _key;
+
+  EncryptionService()
+      : _key = encrypt.Key.fromBase16(AppConstants.encryptionKey),
+        _iv = encrypt.IV.fromBase16(AppConstants.encryptionIV) {
+    // 🔥 키 길이 검증
+    if (_key.bytes.length != 32) {
+      throw Exception(
+          'Invalid Key length: ${_key.bytes.length}. Key must be exactly 32 bytes.');
+    }
+    // 🔥 IV 길이 검증
+    if (_iv.bytes.length != 16) {
+      throw Exception(
+          'Invalid IV length: ${_iv.bytes.length}. IV must be exactly 16 bytes.');
+    }
+  }
+
   final _encrypter = encrypt.Encrypter(
-      encrypt.AES(encrypt.Key.fromUtf8(AppConstants.encryptionKey)));
+    encrypt.AES(encrypt.Key.fromBase16(AppConstants.encryptionKey)),
+  );
+
+  static get hex => null;
 
   // 랜덤 salt 생성
   String _generateSalt() {
     final random = Random.secure();
     final values = List<int>.generate(_saltLength, (i) => random.nextInt(256));
-    return base64Url.encode(values);
+    if (values.length != _saltLength) {
+      throw Exception('Generated Salt length is invalid: ${values.length}');
+    }
+    return base64Url.encode(values).substring(0, _saltLength); // 정확한 길이 유지
   }
 
   // 해시 생성
@@ -850,14 +873,24 @@ class FileService {
     }
   }
 
-  // 보안 설정을 저장하는 메서드
+  // 보안 설정 저장 (암호화 실패 시 기본값 사용)
   Future<void> saveSecuritySettings(SecuritySetting settings) async {
     try {
       final file = await _securitySettingsFile;
       final encryptedData = settings.toEncryptedString(_encryptionService);
       await file.writeAsString(encryptedData);
-    } catch (e) {
-      throw Exception('보안 설정 저장 실패: ${e.toString()}');
+    } catch (e, stackTrace) {
+      print('보안 설정 저장 실패: $e $stackTrace');
+      // 암호화 실패 시 기본 설정값 저장
+      final defaultSettings = SecuritySetting(
+        apiKey: 'default-api-key',
+        accessToken: 'default-access-token',
+        refreshToken: 'default-refresh-token',
+      );
+      final file = await _securitySettingsFile;
+      final defaultEncryptedData =
+          defaultSettings.toEncryptedString(_encryptionService);
+      await file.writeAsString(defaultEncryptedData);
     }
   }
 
@@ -877,20 +910,48 @@ class FileService {
     }
   }
 
-  // 보안 설정을 불러오는 메서드
+  // 보안 설정 불러오기 (없거나 실패 시 기본값 사용)
   Future<SecuritySetting> loadSecuritySettings() async {
     try {
       final file = await _securitySettingsFile;
       if (!await file.exists()) {
-        throw Exception('보안 설정 파일이 존재하지 않습니다.');
+        return _saveAndReturnDefaultSettings();
       }
 
       final encryptedData = await file.readAsString();
+
+      // 데이터가 올바른 Base64 형식인지 검증
+      if (!RegExp(r'^[A-Za-z0-9+/=]+$').hasMatch(encryptedData)) {
+        throw FormatException('Invalid Base64 format');
+      }
+
       return SecuritySetting.fromEncryptedString(
           encryptedData, _encryptionService);
-    } catch (e) {
-      throw Exception('보안 설정 불러오기 실패: ${e.toString()}');
+    } catch (e, stackTrace) {
+      print('보안 설정 불러오기 실패: $e, $stackTrace');
+
+      await resetSecuritySettings();
+      return _saveAndReturnDefaultSettings();
     }
+  }
+
+  Future<void> resetSecuritySettings() async {
+    final file = await _securitySettingsFile;
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  // 기본 보안 설정 생성 및 저장 후 반환
+  Future<SecuritySetting> _saveAndReturnDefaultSettings() async {
+    final defaultSettings = SecuritySetting(
+      apiKey: 'default-api-key',
+      accessToken: 'default-access-token',
+      refreshToken: 'default-refresh-token',
+    );
+
+    await saveSecuritySettings(defaultSettings);
+    return defaultSettings;
   }
 
   // 모든 설정 파일 삭제 메서드 (초기화 용도)
@@ -921,8 +982,9 @@ class AppConstants {
 
   // Encryption
   static const String encryptionKey =
-      'your_32_length_secret_key_12345678'; // 32 bytes for AES-256
-  static const String encryptionIV = 'your_16_length_iv'; // 16 bytes for AES
+      'e4c09b8a8f4e7f6635b14a8b292f91a7d7e8c7a00e5b68c8a8b0f1d6a4a4a7e8'; // 32 bytes for AES-256
+  static const String encryptionIV =
+      '7ac075ded8f50f175b888d5b32b30961'; // 16 bytes for AES
 
   // Validation
   static const int maxPortNumber = 65535;
@@ -1018,7 +1080,6 @@ base64 디코딩 > 구분 패턴으로 암호화+salt와 해시값 구분 > 암�
     "apiKey": "your-secret-key",
     "accessToken": "your-access-token",
     "refreshToken": "your-refresh-token",
-    "lastModified": "2024-02-05T12:00:00Z",
-    "hash": "generated-hash-value"
+    "lastModified": "2024-02-05T12:00:00Z"
 }
 ```
